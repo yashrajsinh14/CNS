@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>CryptoLock Messenger</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', sans-serif;
+      background: linear-gradient(to right, #ffecd2 0%, #fcb69f 100%);
+      padding: 30px;
+      color: #333;
+    }
+
+    h1 {
+      color: #444;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    .container {
+      max-width: 700px;
+      margin: 0 auto;
+      background: white;
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+    }
+
+    textarea, input {
+      width: 100%;
+      padding: 12px;
+      margin: 10px 0;
+      border-radius: 8px;
+      border: 1px solid #ccc;
+      font-size: 16px;
+    }
+
+    button {
+      background-color: #6a11cb;
+      background-image: linear-gradient(315deg, #6a11cb 0%, #2575fc 74%);
+      border: none;
+      color: white;
+      padding: 12px 20px;
+      font-size: 16px;
+      border-radius: 10px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    pre {
+      background: #f0f0f0;
+      padding: 10px;
+      white-space: pre-wrap;
+      border-radius: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔒 CryptoLock Messenger</h1>
+  <div class="container">
+    <textarea id="message" placeholder="Type your secret message here..."></textarea>
+    <button onclick="encryptMessage()">Encrypt & Send</button>
+    <pre id="encrypted-output"></pre>
+
+    <button onclick="decryptMessage()">Decrypt Received Message</button>
+    <pre id="decrypted-output"></pre>
+  </div>
+
+  <script>
+    let rsaKeyPair, aesKey, iv, encryptedMessage, encryptedAesKey;
+
+    async function generateRSAKeyPair() {
+      rsaKeyPair = await window.crypto.subtle.generateKey(
+        {
+          name: "RSA-OAEP",
+          modulusLength: 2048,
+          publicExponent: new Uint8Array([1, 0, 1]),
+          hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function generateAESKey() {
+      aesKey = await window.crypto.subtle.generateKey(
+        {
+          name: "AES-GCM",
+          length: 256,
+        },
+        true,
+        ["encrypt", "decrypt"]
+      );
+    }
+
+    async function encryptMessage() {
+      await generateRSAKeyPair();
+      await generateAESKey();
+
+      const msg = document.getElementById("message").value;
+      iv = window.crypto.getRandomValues(new Uint8Array(12));
+      const encoded = new TextEncoder().encode(msg);
+
+      const ciphertext = await window.crypto.subtle.encrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+        },
+        aesKey,
+        encoded
+      );
+      encryptedMessage = new Uint8Array(ciphertext);
+
+      // Encrypt AES key with RSA Public Key
+      const rawAESKey = await window.crypto.subtle.exportKey("raw", aesKey);
+      const encryptedKeyBuffer = await window.crypto.subtle.encrypt(
+        { name: "RSA-OAEP" },
+        rsaKeyPair.publicKey,
+        rawAESKey
+      );
+      encryptedAesKey = new Uint8Array(encryptedKeyBuffer);
+
+      document.getElementById("encrypted-output").textContent =
+        `🔐 Encrypted AES Key (Base64):\n${btoa(String.fromCharCode(...encryptedAesKey))}\n\n` +
+        `🧾 Encrypted Message (Base64):\n${btoa(String.fromCharCode(...encryptedMessage))}`;
+    }
+
+    async function decryptMessage() {
+      const decryptedAESKeyBuffer = await window.crypto.subtle.decrypt(
+        { name: "RSA-OAEP" },
+        rsaKeyPair.privateKey,
+        encryptedAesKey
+      );
+      const importedAESKey = await window.crypto.subtle.importKey(
+        "raw",
+        decryptedAESKeyBuffer,
+        "AES-GCM",
+        true,
+        ["decrypt"]
+      );
+
+      const decryptedBuffer = await window.crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv,
+        },
+        importedAESKey,
+        encryptedMessage
+      );
+
+      const decodedMessage = new TextDecoder().decode(decryptedBuffer);
+      document.getElementById("decrypted-output").textContent =
+        `📩 Decrypted Message:\n${decodedMessage}`;
+    }
+  </script>
+</body>
+</html>
